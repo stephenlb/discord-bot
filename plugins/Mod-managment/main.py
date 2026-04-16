@@ -114,22 +114,28 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
     async def mod_add(self, interaction: discord.Interaction, user: discord.Member, yt_query: str):
         await interaction.response.defer(ephemeral=True)
 
-        if not self.youtube:
-            await interaction.followup.send("❌ YouTube API key is missing. Contact the bot developer.")
-            return
-
         data = load_data()
         if str(user.id) in data:
             await interaction.followup.send("⚠️ This user is already registered.")
             return
 
-        # Run blocking API call in an executor
-        loop = asyncio.get_running_loop()
-        channel = await loop.run_in_executor(None, lambda: fetch_channel(yt_query, self.youtube))
+        # If YouTube API is configured, fetch real data. Otherwise, use a fallback.
+        if self.youtube:
+            # Run blocking API call in an executor
+            loop = asyncio.get_running_loop()
+            channel = await loop.run_in_executor(None, lambda: fetch_channel(yt_query, self.youtube))
 
-        if not channel:
-            await interaction.followup.send("❌ YouTube channel not found.")
-            return
+            if not channel:
+                await interaction.followup.send("❌ YouTube channel not found.")
+                return
+        else:
+            # Fallback data when the API key is not provided
+            channel = {
+                "title": yt_query,
+                "id": "Unknown",
+                "url": yt_query if "http" in yt_query else f"https://www.youtube.com/results?search_query={yt_query}",
+                "thumbnail": None
+            }
 
         mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
         if not mod_role:
@@ -166,6 +172,9 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
             embed.set_thumbnail(url=channel["thumbnail"])
         embed.add_field(name="Discord", value=user.mention)
         embed.add_field(name="YouTube", value=f"[{channel['title']}]({channel['url']})")
+        
+        if not self.youtube:
+            embed.set_footer(text="⚠️ Added without API validation (Missing API Key)")
 
         await interaction.followup.send(embed=embed)
 
