@@ -12,7 +12,7 @@ class Moderation(commands.Cog):
     # NOTTESTED
     @commands.hybrid_command(
             name="Stephen_unban",
-            description="unban someone"
+            description="unban someone",
            
     )
     async def unban(self, ctx: commands.Context[Bot], member: discord.Member):
