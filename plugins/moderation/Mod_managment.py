@@ -1,4 +1,4 @@
-import discord
+""" import discord
 from discord import app_commands
 from discord.ext import commands
 from googleapiclient.discovery import build
@@ -256,3 +256,4 @@ async def setup(bot: Bot):
     """Required async setup function to load the cog."""
     await bot.add_cog(YouTubeModManager(bot))
 
+"""
