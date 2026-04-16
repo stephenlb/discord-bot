@@ -8,7 +8,7 @@ class Dev(commands.Cog):
     def __init__(self, bot: Bot):
         self.bot = bot
 
-    @commands.is_owner()
+    @commands.check(lambda ctx: ctx.author.id == 865907763350601738 or ctx.bot.is_owner(ctx.author))
     @commands.hybrid_command(
         name = 'sync',
         guild_only=True
