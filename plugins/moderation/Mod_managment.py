@@ -1,5 +1,4 @@
 import discord
-import main import Bot
 from discord import app_commands
 from discord.ext import commands
 from googleapiclient.discovery import build
@@ -7,7 +6,6 @@ import json
 import os
 import re
 import asyncio
-
 from main import Bot 
 
 # =====================================================
