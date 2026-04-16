@@ -1,65 +1,50 @@
 import discord
 from discord.ext import commands
-
-
 from main import Bot
+
 class Moderation(commands.Cog):
     """
-    A commands.Cog module that provides a moderation commands.
+    A commands.Cog module that provides moderation commands.
     """
     def __init__(self, bot: Bot):
         self.bot = bot
-    # NOTTESTED
+#in testing should work
     @commands.hybrid_command(
-            name="Stephen_unban",
-            description="unban someone",
-           
+            name="stephen_unban", 
+            description="Unbans someone"
     )
-    async def unban(self, ctx: commands.Context[Bot], member: discord.Member):
-        if member == ctx.author:
+    @commands.has_permissions(ban_members=True) # Added permission check for safety
+    async def unban(self, ctx: commands.Context[Bot], user: discord.User): # Changed to discord.User to allow preventive bans
+        if user == ctx.author:
             return await ctx.reply("You can't unban yourself!", mention_author=False)
 
         try:
-            await member.unban()
-            
-            if ctx.interaction:
-                await ctx.interaction.response.send_message(
-                    f"🔨 Unbanned {member}"
-                    ,ephemeral=True
-                )
-            else:
-                await ctx.send(f"🔨 Unbanned {member}", ephemeral=True)
+            await ctx.guild.unban(user) # Using guild.unban() instead of member.unban()
+    
+            await ctx.send(f"🔨 Unbanned {user}", ephemeral=True) 
         except discord.Forbidden:
             await ctx.reply("I don't have permission to unban that user.", mention_author=False, ephemeral=True)
         except Exception as e:
             await ctx.reply(f"Error: {e}", mention_author=False)
     
-
     @commands.hybrid_command(
-        name="Stephen_ban",
+        name="stephen_ban", 
         description="Bans someone"
     )
-
     @commands.has_permissions(ban_members=True)
     async def ban(self, ctx: commands.Context[Bot], member: discord.Member, *, reason: str = "No reason provided"):
         if member == ctx.author:
             return await ctx.reply("You can't ban yourself!", mention_author=False)
+            
         try:
             await member.ban(reason=reason)
-            
-            if ctx.interaction:
-                await ctx.interaction.response.send_message(
-                    f"🔨 Banned {member} — **Reason:** {reason}"
-                    ,ephemeral=True
-                )
-            else:
-                # If invoked via prefix text command
-                await ctx.send(f"🔨 Banned {member} — **Reason:** {reason}", ephemeral=True)
+            #no else needed gets handled by hybrid command
+            await ctx.send(f"🔨 Banned {member} — **Reason:** {reason}", ephemeral=True)
         except discord.Forbidden:
             await ctx.reply("I don't have permission to ban that user.", mention_author=False, ephemeral=True)
         except Exception as e:
             await ctx.reply(f"Error: {e}", mention_author=False)
-    
+         
     @ban.error
     async def ban_error(self, ctx: commands.Context[Bot], error: commands.CommandError):
         if isinstance(error, commands.MissingPermissions):
