@@ -11,9 +11,9 @@ from main import Bot
 # =====================================================
 #                 PLUGIN CONFIGURATION
 # =====================================================
-
-MOD_ROLE_ID   = int(os.getenv("DISCORD_MOD_ROLE_ID",   "0"))
-ADMIN_ROLE_ID = int(os.getenv("DISCORD_ADMIN_ROLE_ID", "0"))
+#Hardcover roles once .env with ids ill change it
+MOD_ROLE_ID   = 1412894829708316815
+ADMIN_ROLE_ID = 1413228693144338503
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 DATA_FILE = os.getenv("MOD_DB_FILE", "mod_database.json")
 
