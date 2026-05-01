@@ -11,7 +11,7 @@ from main import Bot
 # =====================================================
 #                 PLUGIN CONFIGURATION
 # =====================================================
-#Hardcover roles once .env with ids ill change it
+# Hardcoded roles (once in .env with ids, I'll change it)
 MOD_ROLE_ID   = 1412894829708316815
 ADMIN_ROLE_ID = 1413228693144338503
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
@@ -111,55 +111,65 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
 
     @app_commands.command(name="add", description="Register a moderator (Auto-Role & DB)")
     @mod_manager_only()
-    async def mod_add(self, interaction: discord.Interaction, user: discord.Member, yt_query: str):
+    async def mod_add(self, interaction: discord.Interaction, yt_query: str, user: discord.Member = None):
         await interaction.response.defer(ephemeral=True)
 
         data = load_data()
-        if str(user.id) in data:
+        
+        # Initial check if the Discord user is already in the DB
+        if user and str(user.id) in data:
             await interaction.followup.send("⚠️ This user is already registered.")
             return
 
-        # If YouTube API is configured, fetch real data. Otherwise, use a fallback.
+        # Fetch YouTube Data
         if self.youtube:
-            # Run blocking API call in an executor
             loop = asyncio.get_running_loop()
             channel = await loop.run_in_executor(None, lambda: fetch_channel(yt_query, self.youtube))
-
             if not channel:
                 await interaction.followup.send("❌ YouTube channel not found.")
                 return
         else:
-            # Fallback data when the API key is not provided
+            # Fallback data when API key is missing
             channel = {
                 "title": yt_query,
-                "id": "Unknown",
+                "id": yt_query.split("/")[-1], # Use end of URL as a fallback ID
                 "url": yt_query if "http" in yt_query else f"https://www.youtube.com/results?search_query={yt_query}",
                 "thumbnail": None
             }
 
-        mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
-        if not mod_role:
-            await interaction.followup.send("❌ Mod role does not exist (Check Config).")
+        # If there's no Discord user, use a custom prefix + YT ID as the dictionary key
+        db_key = str(user.id) if user else f"yt_{channel['id']}"
+
+        # Secondary check in case this YouTube-only entry already exists
+        if not user and db_key in data:
+            await interaction.followup.send("⚠️ This YouTube channel is already registered.")
             return
 
-        me = interaction.guild.get_member(self.bot.user.id) if interaction.guild and self.bot.user else None
+        # Handle Role Assignment ONLY if a Discord user was provided
+        if user:
+            mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
+            if not mod_role:
+                await interaction.followup.send("❌ Mod role does not exist (Check Config).")
+                return
 
-        if not me or not getattr(me, "top_role", None):
-            await interaction.followup.send("❌ Could not determine bot role. Try again in a moment.")
-            return
+            me = interaction.guild.get_member(self.bot.user.id) if interaction.guild and self.bot.user else None
+            if not me or not getattr(me, "top_role", None):
+                await interaction.followup.send("❌ Could not determine bot role. Try again in a moment.")
+                return
 
-        if mod_role.position >= me.top_role.position:
-            await interaction.followup.send("❌ Bot role hierarchy is too low. Move the Bot role above the Mod role in Server Settings.")
-            return
+            if mod_role.position >= me.top_role.position:
+                await interaction.followup.send("❌ Bot role hierarchy is too low. Move the Bot role above the Mod role in Server Settings.")
+                return
 
-        try:
-            await user.add_roles(mod_role, reason="Moderator registered via Bot")
-        except discord.Forbidden:
-            await interaction.followup.send("❌ Missing Permissions to add role.")
-            return
+            try:
+                await user.add_roles(mod_role, reason="Moderator registered via Bot")
+            except discord.Forbidden:
+                await interaction.followup.send("❌ Missing Permissions to add role.")
+                return
 
-        data[str(user.id)] = {
-            "discord_name": user.name,
+        # Save to Database
+        data[db_key] = {
+            "discord_name": user.name if user else "NULL",
             "yt_title": channel["title"],
             "yt_id": channel["id"],
             "yt_url": channel["url"],
@@ -170,7 +180,8 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
         embed = discord.Embed(title="✅ Moderator Registered", color=discord.Color.green())
         if channel.get("thumbnail"):
             embed.set_thumbnail(url=channel["thumbnail"])
-        embed.add_field(name="Discord", value=user.mention)
+            
+        embed.add_field(name="Discord", value=user.mention if user else "NULL")
         embed.add_field(name="YouTube", value=f"[{channel['title']}]({channel['url']})")
         
         if not self.youtube:
@@ -180,9 +191,346 @@ class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="
 
     @app_commands.command(name="remove", description="Remove a moderator (Removes Role & DB)")
     @mod_manager_only()
-    async def mod_remove(self, interaction: discord.Interaction, user: discord.Member):
+    async def mod_remove(self, interaction: discord.Interaction, user: discord.Member = None, yt_search: str = None):
         data = load_data()
 
+        if not user and not yt_search:
+            await interaction.response.send_message("⚠️ Please provide either a Discord User or a YouTube Name/ID to remove.", ephemeral=True)
+            return
+
+        target_key = None
+
+        if user and str(user.id) in data:
+            target_key = str(user.id)
+        elif yt_search:
+            # Try finding the record by exact key or matching the YouTube title
+            if yt_search in data:
+                target_key = yt_search
+            else:
+                for k, v in data.items():
+                    if yt_search.lower() in (v.get("yt_title") or "").lower() or v.get("yt_id") == yt_search:
+                        target_key = k
+                        break
+
+        if not target_key:
+            await interaction.response.send_message("⚠️ Moderator not found in database.", ephemeral=True)
+            return
+
+        # Only attempt to remove a role if a Discord user was provided/found
+        if user:
+            mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
+            if mod_role and mod_role in user.roles:
+                try:
+                    await user.remove_roles(mod_role, reason="Moderator removed via Bot")
+                except discord.Forbidden:
+                    await interaction.response.send_message("❌ I cannot remove the role (Hierarchy issue).", ephemeral=True)
+                    return
+
+        del data[target_key]
+        save_data(data)
+
+        target_name = user.mention if user else f"YouTube channel `{yt_search}`"
+        await interaction.response.send_message(f"🗑️ {target_name} removed from DB.")
+
+    @app_commands.command(name="list", description="List all moderators")
+    async def mod_list(self, interaction: discord.Interaction):
+        data = load_data()
+
+        if not data:
+            await interaction.response.send_message("📭 No moderators registered.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🛡️ Moderator List", color=discord.Color.red())
+
+        for uid, info in data.items():
+            # If the database key is purely digits, it's a Discord ID. Otherwise, it's NULL.
+            discord_display = f"<@{uid}>" if uid.isdigit() else "NULL"
+            
+            embed.add_field(
+                name=info.get("discord_name", "Unknown"),
+                value=f"{discord_display}\n📺 [{info.get('yt_title','Unknown')}]({info.get('yt_url','')})",
+                inline=True,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="info", description="Get moderator info by User or YT Name")
+    async def mod_info(self, interaction: discord.Interaction, user: discord.Member = None, yt_name: str = None):
+        data = load_data()
+        entry = None
+        uid = None
+
+        if user and str(user.id) in data:
+            uid, entry = str(user.id), data[str(user.id)]
+        elif yt_name:
+            for k, v in data.items():
+                if yt_name.lower() in (v.get("yt_title") or "").lower():
+                    uid, entry = k, v
+                    break
+
+        if not entry:
+            await interaction.response.send_message("❌ Moderator not found in database.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🔎 Moderator Info", color=discord.Color.blue())
+        if entry.get("yt_thumb"):
+            embed.set_thumbnail(url=entry["yt_thumb"])
+            
+        discord_display = f"<@{uid}>" if uid and uid.isdigit() else "NULL"
+        embed.add_field(name="Discord", value=discord_display, inline=True)
+        
+        embed.add_field(
+            name="YouTube Channel",
+            value=f"[{entry.get('yt_title','Unknown')}]({entry.get('yt_url','')})",
+            inline=True,
+        )
+        if entry.get("yt_id"):
+            embed.set_footer(text=f"YT ID: {entry['yt_id']}")
+
+        await interaction.response.send_message(embed=embed)
+
+    # Automatically handle errors specifically for the commands in this cog
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            msg = "⛔ You don't have permission to do that."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            print(f"App command error in YouTubeModManager: {error}")
+
+async def setup(bot: Bot):
+    """Required async setup function to load the cog."""
+    await bot.add_cog(YouTubeModManager(bot))
+            "url": f"https://www.youtube.com/channel/{channel_id}",
+            "thumbnail": thumb_url,
+        }
+
+    except Exception as e:
+        print(f"YouTube API error: {e}")
+        return None
+
+# Permission Check 
+def mod_manager_only():
+    async def predicate(interaction: discord.Interaction):
+        if interaction.user.id == 865907763350601738: return True
+        if not interaction.guild: return False
+        member = interaction.guild.get_member(interaction.user.id)
+        if not member: return False
+        if member.guild_permissions.administrator: return True
+        return any(role.id == ADMIN_ROLE_ID for role in member.roles)
+    return app_commands.check(predicate)
+
+# # =====================================================
+#                   PLUGIN COG
+# =====================================================
+
+class YouTubeModManager(commands.GroupCog, group_name="mod", group_description="Moderator management via YouTube"):
+    def __init__(self, bot: Bot):
+        self.bot = bot
+        # Initialize the API client dynamically when the cog loads
+        if YOUTUBE_API_KEY:
+            self.youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+        else:
+            self.youtube = None
+            print("WARNING: YOUTUBE_API_KEY is not set in environment variables.")
+
+    @app_commands.command(name="add", description="Register a moderator (Auto-Role & DB)")
+    @mod_manager_only()
+    async def mod_add(self, interaction: discord.Interaction, yt_query: str, user: discord.Member = None):
+        # NOTE: yt_query must come first because required args go before optional ones!
+        await interaction.response.defer(ephemeral=True)
+
+        data = load_data()
+        
+        # Initial check if the Discord user is already in the DB
+        if user and str(user.id) in data:
+            await interaction.followup.send("⚠️ This user is already registered.")
+            return
+
+        # Fetch YouTube Data
+        if self.youtube:
+            loop = asyncio.get_running_loop()
+            channel = await loop.run_in_executor(None, lambda: fetch_channel(yt_query, self.youtube))
+            if not channel:
+                await interaction.followup.send("❌ YouTube channel not found.")
+                return
+        else:
+            # Fallback data when API key is missing
+            channel = {
+                "title": yt_query,
+                "id": yt_query.split("/")[-1], # Use end of URL as a fallback ID
+                "url": yt_query if "http" in yt_query else f"https://www.youtube.com/results?search_query={yt_query}",
+                "thumbnail": None
+            }
+
+        # If there's no Discord user, use a custom prefix + YT ID as the dictionary key
+        db_key = str(user.id) if user else f"yt_{channel['id']}"
+
+        # Secondary check in case this YouTube-only entry already exists
+        if not user and db_key in data:
+            await interaction.followup.send("⚠️ This YouTube channel is already registered.")
+            return
+
+        # Handle Role Assignment ONLY if a Discord user was provided
+        if user:
+            mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
+            if not mod_role:
+                await interaction.followup.send("❌ Mod role does not exist (Check Config).")
+                return
+
+            me = interaction.guild.get_member(self.bot.user.id) if interaction.guild and self.bot.user else None
+            if not me or not getattr(me, "top_role", None):
+                await interaction.followup.send("❌ Could not determine bot role. Try again in a moment.")
+                return
+
+            if mod_role.position >= me.top_role.position:
+                await interaction.followup.send("❌ Bot role hierarchy is too low. Move the Bot role above the Mod role in Server Settings.")
+                return
+
+            try:
+                await user.add_roles(mod_role, reason="Moderator registered via Bot")
+            except discord.Forbidden:
+                await interaction.followup.send("❌ Missing Permissions to add role.")
+                return
+
+        # Save to Database
+        data[db_key] = {
+            "discord_name": user.name if user else "NULL",
+            "yt_title": channel["title"],
+            "yt_id": channel["id"],
+            "yt_url": channel["url"],
+            "yt_thumb": channel.get("thumbnail"),
+        }
+        save_data(data)
+
+        embed = discord.Embed(title="✅ Moderator Registered", color=discord.Color.green())
+        if channel.get("thumbnail"):
+            embed.set_thumbnail(url=channel["thumbnail"])
+            
+        embed.add_field(name="Discord", value=user.mention if user else "NULL")
+        embed.add_field(name="YouTube", value=f"[{channel['title']}]({channel['url']})")
+        
+        if not self.youtube:
+            embed.set_footer(text="⚠️ Added without API validation (Missing API Key)")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="remove", description="Remove a moderator (Removes Role & DB)")
+    @mod_manager_only()
+    async def mod_remove(self, interaction: discord.Interaction, user: discord.Member = None, yt_search: str = None):
+        data = load_data()
+
+        if not user and not yt_search:
+            await interaction.response.send_message("⚠️ Please provide either a Discord User or a YouTube Name/ID to remove.", ephemeral=True)
+            return
+
+        target_key = None
+
+        if user and str(user.id) in data:
+            target_key = str(user.id)
+        elif yt_search:
+            # Try finding the record by exact key or matching the YouTube title
+            if yt_search in data:
+                target_key = yt_search
+            else:
+                for k, v in data.items():
+                    if yt_search.lower() in (v.get("yt_title") or "").lower() or v.get("yt_id") == yt_search:
+                        target_key = k
+                        break
+
+        if not target_key:
+            await interaction.response.send_message("⚠️ Moderator not found in database.", ephemeral=True)
+            return
+
+        # Only attempt to remove a role if a Discord user was provided/found
+        if user:
+            mod_role = interaction.guild.get_role(MOD_ROLE_ID) if interaction.guild else None
+            if mod_role and mod_role in user.roles:
+                try:
+                    await user.remove_roles(mod_role, reason="Moderator removed via Bot")
+                except discord.Forbidden:
+                    await interaction.response.send_message("❌ I cannot remove the role (Hierarchy issue).", ephemeral=True)
+                    return
+
+        del data[target_key]
+        save_data(data)
+
+        target_name = user.mention if user else f"YouTube channel `{yt_search}`"
+        await interaction.response.send_message(f"🗑️ {target_name} removed from DB.")
+
+    @app_commands.command(name="list", description="List all moderators")
+    async def mod_list(self, interaction: discord.Interaction):
+        data = load_data()
+
+        if not data:
+            await interaction.response.send_message("📭 No moderators registered.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🛡️ Moderator List", color=discord.Color.red())
+
+        for uid, info in data.items():
+            # If the database key is purely digits, it's a Discord ID. Otherwise, it's NULL.
+            discord_display = f"<@{uid}>" if uid.isdigit() else "NULL"
+            
+            embed.add_field(
+                name=info.get("discord_name", "Unknown"),
+                value=f"{discord_display}\n📺 [{info.get('yt_title','Unknown')}]({info.get('yt_url','')})",
+                inline=True,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="info", description="Get moderator info by User or YT Name")
+    async def mod_info(self, interaction: discord.Interaction, user: discord.Member = None, yt_name: str = None):
+        data = load_data()
+        entry = None
+        uid = None
+
+        if user and str(user.id) in data:
+            uid, entry = str(user.id), data[str(user.id)]
+        elif yt_name:
+            for k, v in data.items():
+                if yt_name.lower() in (v.get("yt_title") or "").lower():
+                    uid, entry = k, v
+                    break
+
+        if not entry:
+            await interaction.response.send_message("❌ Moderator not found in database.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🔎 Moderator Info", color=discord.Color.blue())
+        if entry.get("yt_thumb"):
+            embed.set_thumbnail(url=entry["yt_thumb"])
+            
+        discord_display = f"<@{uid}>" if uid and uid.isdigit() else "NULL"
+        embed.add_field(name="Discord", value=discord_display, inline=True)
+        
+        embed.add_field(
+            name="YouTube Channel",
+            value=f"[{entry.get('yt_title','Unknown')}]({entry.get('yt_url','')})",
+            inline=True,
+        )
+        if entry.get("yt_id"):
+            embed.set_footer(text=f"YT ID: {entry['yt_id']}")
+
+        await interaction.response.send_message(embed=embed)
+
+    # Automatically handle errors specifically for the commands in this cog
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            msg = "⛔ You don't have permission to do that."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            print(f"App command error in YouTubeModManager: {error}")
+
+async def setup(bot: Bot):
+    """Required async setup function to load the cog."""
+    await bot.add_cog(YouTubeModManager(bot))
         if str(user.id) not in data:
             await interaction.response.send_message("⚠️ User is not registered.", ephemeral=True)
             return
