@@ -148,21 +148,23 @@ class TicketSystem(commands.Cog):
         
         await interaction.response.send_message(f"✅ Ticket forum message successfully deleted and deactivated.", ephemeral=True)
 
-    @app_commands.command(name="close", description="Close the current ticket, create a transcript, and delete instantly")
+        @app_commands.command(name="close", description="Close the current ticket, create a transcript, and delete instantly")
     @app_commands.describe(title="Optional custom title for the transcript file")
     async def close_ticket(self, interaction: discord.Interaction, title: str = None):
         if not interaction.channel.name.startswith("ticket-"):
-            return await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
+            # Removed ephemeral=True
+            return await interaction.response.send_message("❌ This command can only be used inside a ticket channel.")
             
         await interaction.response.defer()
         
-        #generate transcript name for sorting/appeals
+        # Generate transcript name for sorting/appeals
         transcript_title = title if title else interaction.channel.name
         
-        #Transcript
+        # Transcript
         transcript = f"Transcript for {transcript_title}\n"
         transcript += "=" * 40 + "\n\n"        
         participants = set()         
+        
         messages = [msg async for msg in interaction.channel.history(limit=None, oldest_first=True)]
         for msg in messages:
             timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
@@ -171,6 +173,7 @@ class TicketSystem(commands.Cog):
                 transcript += f"    [Attachments: {', '.join([a.url for a in msg.attachments])}]\n"
             if not msg.author.bot:
                 participants.add(msg.author)
+                
         try:
             topic = interaction.channel.topic
             if topic:
@@ -181,9 +184,11 @@ class TicketSystem(commands.Cog):
                         participants.add(ticket_user)
         except Exception:
             pass 
+            
         transcript_bytes = transcript.encode('utf-8')
         safe_filename = transcript_title.replace("/", "-") 
-        #avoid possible naming exploit
+        
+        # Avoid possible naming exploit
         for user in participants:
             try:
                 transcript_file = discord.File(io.BytesIO(transcript_bytes), filename=f"{safe_filename}.txt")
@@ -192,15 +197,23 @@ class TicketSystem(commands.Cog):
                     file=transcript_file
                 )
             except discord.Forbidden:
-                #Dms closed
+                # DMs closed
                 pass
             except Exception as e:
                 print(f"Failed to send transcript to {user.name}: {e}")
-        await interaction.followup.send("Ticket locked and transcript sent to participants.", ephemeral=True)
+            
+        await interaction.followup.send("Ticket locked and transcript sent. Deleting channel in 3 seconds...")
+        await asyncio.sleep(3)
+        
         try:
-            await interaction.channel.delete(reason="Ticket closed.")
+            await interaction.channel.delete(reason=f"Ticket closed by {interaction.user.name}")
+        except discord.Forbidden:
+            await interaction.channel.send("❌ I cannot delete this channel because I lack the **Manage Channels** permission.")
         except discord.NotFound:
             pass
+        except discord.HTTPException as e:
+            await interaction.channel.send(f"❌ Failed to delete the channel: {e}")
+
 
 async def setup(bot: Bot):
     await bot.add_cog(TicketSystem(bot))
