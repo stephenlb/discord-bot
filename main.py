@@ -17,6 +17,7 @@ Libraries Used:
 
 from pathlib import Path
 import time
+import traceback
 from discord.ext import commands
 from discord.message import Message
 from discord import Intents, Object
@@ -93,7 +94,12 @@ async def main():
 
     for plugin in plugins:
         print(f'Loading Plugin {plugin.module_path=}')
-        await bot.load_extension(plugin.module_path)
+        try:
+            await bot.load_extension(plugin.module_path)
+        except Exception:
+            # A broken plugin must not stop the rest of the bot from starting
+            print(f'Failed to load plugin {plugin.module_path}:')
+            traceback.print_exc()
 
     # Start the bot session
     await bot.start(token=token)

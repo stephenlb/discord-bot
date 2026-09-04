@@ -57,12 +57,12 @@ class TicketButton(discord.ui.View):
 
 
 class TicketSystem(commands.Cog):
-    async def setup(bot: commands.Bot):
-    await bot.add_cog(TicketSystem(bot))
+    def __init__(self, bot: Bot):
+        self.bot = bot
 
     forum_group = app_commands.Group(name="forum", description="Manage ticket forums")
 
-        @forum_group.command(name="create", description="Create a ticket forum in a designated channel")
+    @forum_group.command(name="create", description="Create a ticket forum in a designated channel")
     @app_commands.describe(
         message="The message displayed on the ticket forum",
         role1="First role allowed to see tickets",
