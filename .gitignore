@@ -2,3 +2,5 @@
 .vscode
 __pycache__
 .env
+mod_list.json
+ticket_forums.json
