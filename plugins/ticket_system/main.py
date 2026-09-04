@@ -154,7 +154,7 @@ class TicketSystem(commands.Cog):
         if not interaction.channel.name.startswith("ticket-"):
             return await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
         #generate transcript name for sorting/appeals
         transcript_title = title if title else interaction.channel.name
@@ -183,7 +183,6 @@ class TicketSystem(commands.Cog):
             pass 
         transcript_bytes = transcript.encode('utf-8')
         safe_filename = transcript_title.replace("/", "-") 
-        #avoid possible naming exploits
         
         for user in participants:
             try:
@@ -193,16 +192,19 @@ class TicketSystem(commands.Cog):
                     file=transcript_file
                 )
             except discord.Forbidden:
-                #Dms closed
                 pass
             except Exception as e:
                 print(f"Failed to send transcript to {user.name}: {e}")
-        #Lock the channel
-        await interaction.followup.send("Ticket locked and transcript sent to participants.", ephemeral=True)
+        try:
+            await interaction.followup.send("Transcript sent. Deleting channel...", ephemeral=True)
+        except Exception:
+            pass
+            
         try:
             await interaction.channel.delete(reason="Ticket closed.")
         except discord.NotFound:
             pass
+
 
 async def setup(bot: Bot):
     await bot.add_cog(TicketSystem(bot))
