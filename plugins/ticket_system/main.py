@@ -57,9 +57,8 @@ class TicketButton(discord.ui.View):
 
 
 class TicketSystem(commands.Cog):
-    def __init__(self, bot: Bot):
-        self.bot = bot
-        self.bot.add_view(TicketButton())
+    async def setup(bot: commands.Bot):
+    await bot.add_cog(TicketSystem(bot))
 
     forum_group = app_commands.Group(name="forum", description="Manage ticket forums")
 
