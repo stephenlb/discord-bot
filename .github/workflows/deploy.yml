@@ -45,6 +45,9 @@ jobs:
             sudo docker run -d \
               --name discord-bot \
               --restart unless-stopped \
+              -e PYTHONUNBUFFERED=1 \
               -e DISCORD_TOKEN="${{ secrets.DISCORD_TOKEN }}" \
+              --log-opt max-size=10m \
+              --log-opt max-file=3 \
               discord-bot
           EOF
