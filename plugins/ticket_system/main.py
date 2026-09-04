@@ -149,42 +149,61 @@ class TicketSystem(commands.Cog):
         await interaction.response.send_message(f"✅ Ticket forum message successfully deleted and deactivated.", ephemeral=True)
 
     @app_commands.command(name="close", description="Close the current ticket, create a transcript, and delete instantly")
-    async def close_ticket(self, interaction: discord.Interaction):
+    @app_commands.describe(title="Optional custom title for the transcript file")
+    async def close_ticket(self, interaction: discord.Interaction, title: str = None):
         if not interaction.channel.name.startswith("ticket-"):
             return await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
             
         await interaction.response.defer()
-
-        #Generate Transcript
-        transcript = f"Transcript for {interaction.channel.name}\n"
-        transcript += "=" * 40 + "\n\n"
         
+        #generate transcript name for sorting/appeals
+        transcript_title = title if title else interaction.channel.name
+        
+        #Transcript
+        transcript = f"Transcript for {transcript_title}\n"
+        transcript += "=" * 40 + "\n\n"        
+        participants = set()         
         messages = [msg async for msg in interaction.channel.history(limit=None, oldest_first=True)]
         for msg in messages:
             timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
             transcript += f"[{timestamp}] {msg.author.name}: {msg.clean_content}\n"
             if msg.attachments:
                 transcript += f"    [Attachments: {', '.join([a.url for a in msg.attachments])}]\n"
-
-        #Send Transcript in DMs 
-        transcript_file = discord.File(io.BytesIO(transcript.encode('utf-8')), filename=f"{interaction.channel.name}.txt")
+            if not msg.author.bot:
+                participants.add(msg.author)
         try:
-            #Extract user ID
             topic = interaction.channel.topic
             if topic:
                 user_id_str = topic.split(" ")[-1]
                 if user_id_str.isdigit():
                     ticket_user = await interaction.guild.fetch_member(int(user_id_str))
-                    if ticket_user:
-                        await ticket_user.send(content=f"Here is the transcript of your closed ticket in **{interaction.guild.name}**:", file=transcript_file)
+                    if ticket_user and not ticket_user.bot:
+                        participants.add(ticket_user)
         except Exception:
             pass 
+        transcript_bytes = transcript.encode('utf-8')
+        safe_filename = transcript_title.replace("/", "-") 
+        #avoid possible naming exploits
+        
+        for user in participants:
+            try:
+                transcript_file = discord.File(io.BytesIO(transcript_bytes), filename=f"{safe_filename}.txt")
+                await user.send(
+                    content=f"Here is the transcript of the closed ticket in **{interaction.guild.name}**:", 
+                    file=transcript_file
+                )
+            except discord.Forbidden:
+                #Dms closed
+                pass
+            except Exception as e:
+                print(f"Failed to send transcript to {user.name}: {e}")
+        #Lock the channel
         for target, overwrite in interaction.channel.overwrites.items():
             if target != interaction.guild.me:
                 overwrite.send_messages = False
                 await interaction.channel.set_permissions(target, overwrite=overwrite)
-        await interaction.followup.send(" Ticket locked and transcript sent. The channel will be deleted in 24 hours.", ephemeral=True)
-        await asyncio.sleep(86400)
+                
+        await interaction.followup.send("🔒 Ticket locked and transcript sent to participants.", ephemeral=True)
         try:
             await interaction.channel.delete(reason="Ticket closed.")
         except discord.NotFound:
