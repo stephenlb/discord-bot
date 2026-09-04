@@ -148,21 +148,21 @@ class TicketSystem(commands.Cog):
         
         await interaction.response.send_message(f"✅ Ticket forum message successfully deleted and deactivated.", ephemeral=True)
 
-    @app_commands.command(name="close", description="Close the current ticket, create a transcript, and delete instantly")
+    @    @app_commands.command(name="close", description="Close the current ticket, create a transcript, and delete instantly")
     @app_commands.describe(title="Optional custom title for the transcript file")
     async def close_ticket(self, interaction: discord.Interaction, title: str = None):
         if not interaction.channel.name.startswith("ticket-"):
             return await interaction.response.send_message("❌ This command can only be used inside a ticket channel.", ephemeral=True)
-            
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         
-        #generate transcript name for sorting/appeals
+        #File name
         transcript_title = title if title else interaction.channel.name
-        
-        #Transcript
+        # Generate Transcript
         transcript = f"Transcript for {transcript_title}\n"
-        transcript += "=" * 40 + "\n\n"        
-        participants = set()         
+        transcript += "=" * 40 + "\n\n"
+        
+        participants = set() #no dupes
+        
         messages = [msg async for msg in interaction.channel.history(limit=None, oldest_first=True)]
         for msg in messages:
             timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
@@ -181,10 +181,11 @@ class TicketSystem(commands.Cog):
                         participants.add(ticket_user)
         except Exception:
             pass 
-        transcript_bytes = transcript.encode('utf-8')
-        safe_filename = transcript_title.replace("/", "-") 
-        #avoid possible naming exploits
         
+        # Transcript
+        transcript_bytes = transcript.encode('utf-8')
+        safe_filename = transcript_title.replace("/", "-")
+        #no no ... No bad file name
         for user in participants:
             try:
                 transcript_file = discord.File(io.BytesIO(transcript_bytes), filename=f"{safe_filename}.txt")
@@ -193,19 +194,16 @@ class TicketSystem(commands.Cog):
                     file=transcript_file
                 )
             except discord.Forbidden:
-                #Dms closed
+                #
                 pass
             except Exception as e:
                 print(f"Failed to send transcript to {user.name}: {e}")
-        #Lock the channel
-        for target, overwrite in interaction.channel.overwrites.items():
-            if target != interaction.guild.me:
-                overwrite.send_messages = False
-                await interaction.channel.set_permissions(target, overwrite=overwrite)
-                
-        await interaction.followup.send("🔒 Ticket locked and transcript sent to participants.", ephemeral=True)
         try:
-            await interaction.channel.delete(reason="Ticket closed.")
+            await interaction.followup.send("Transcript sent to participants. Deleting channel now...", ephemeral=True)
+        except Exception as e:
+            print(f"Followup error: {e}")
+        try:
+            await interaction.channel.delete(reason=f"Ticket closed by {interaction.user.name}")
         except discord.NotFound:
             pass
 
