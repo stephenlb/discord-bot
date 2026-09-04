@@ -183,6 +183,7 @@ class TicketSystem(commands.Cog):
             if target != interaction.guild.me:
                 overwrite.send_messages = False
                 await interaction.channel.set_permissions(target, overwrite=overwrite)
+        await interaction.followup.send(" Ticket locked and transcript sent. The channel will be deleted in 24 hours.", ephemeral=True)
         await asyncio.sleep(86400)
         try:
             await interaction.channel.delete(reason="Ticket closed.")
